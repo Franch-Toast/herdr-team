@@ -28,7 +28,7 @@ def template_dir():
     return home / "herdr-core" / "templates"
 
 
-def runtime_fields(entry, where):
+def validate_runtime_fields(entry, where):
     harness = entry.get("harness")
     if not isinstance(harness, str) or harness not in RUNTIME_FIELDS:
         raise ValueError(f"{where}.harness must be claude or codex")
@@ -39,7 +39,6 @@ def runtime_fields(entry, where):
             char in value for char in "\0\r\n"
         ):
             raise ValueError(f"{where}.{key} must be a nonempty, single-line value, not an option")
-    return entry
 
 
 def load_config():
@@ -49,16 +48,12 @@ def load_config():
     prompt = worker.get("prompt") if isinstance(worker, dict) else None
     if not isinstance(prompt, str) or not prompt.strip() or "\0" in prompt:
         raise ValueError("define [worker].prompt with the shared communication and standby instructions")
-    for section in ("roles", "models"):
-        entries = config.setdefault(section, {})
-        if not isinstance(entries, dict):
-            raise ValueError(f"[{section}] must contain named tables")
-        for name, entry in entries.items():
-            if not NAME.fullmatch(name) or not isinstance(entry, dict):
-                raise ValueError(f"invalid table [{section}.{name}]")
-    if not config["roles"]:
-        raise ValueError("define at least one role")
-    for name, role in config["roles"].items():
+    roles = config.get("roles")
+    if not isinstance(roles, dict) or not roles:
+        raise ValueError("define at least one role in [roles]")
+    for name, role in roles.items():
+        if not NAME.fullmatch(name) or not isinstance(role, dict):
+            raise ValueError(f"invalid table [roles.{name}]")
         for field in ROLE_FIELDS:
             value = role.get(field)
             if not isinstance(value, str) or not value.strip() or "\0" in value:
@@ -67,25 +62,24 @@ def load_config():
             raise ValueError(f"roles.{name}.description must fit on one line")
         if role["access"] not in ("read-only", "workspace-write"):
             raise ValueError(f"roles.{name}.access must be read-only or workspace-write")
-        runtime_fields({key: role[key] for key in role.keys() - ROLE_FIELDS}, f"roles.{name}")
-    for name, model in config["models"].items():
-        runtime_fields(model, f"models.{name}")
+        runtime = {key: value for key, value in role.items() if key not in ROLE_FIELDS}
+        validate_runtime_fields(runtime, f"roles.{name}")
     return config
 
 
-def render_template(role, runtime, worker_prompt):
-    harness = runtime["harness"]
+def render_template(role, worker_prompt):
+    harness = role["harness"]
     argv = [harness]
     if harness == "claude":
-        if settings := runtime.get("settings"):
+        if settings := role.get("settings"):
             argv.extend(["--settings", str((ROOT / Path(settings).expanduser()).resolve())])
     else:
         argv.extend(["--no-daemon", "--sandbox", role["access"]])
-        if profile := runtime.get("profile"):
+        if profile := role.get("profile"):
             argv.extend(["--profile", profile])
-        if provider := runtime.get("provider"):
+        if provider := role.get("provider"):
             argv.extend(["-c", f"model_provider={json.dumps(provider, ensure_ascii=False)}"])
-    if model := runtime.get("model"):
+    if model := role.get("model"):
         argv.extend(["--model", model])
     header = (
         f"---\n{MANAGED}\n"

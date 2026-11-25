@@ -44,11 +44,7 @@ def main():
         desired = {}
         worker_prompt = config["worker"]["prompt"]
         for name, role in config["roles"].items():
-            desired[directory / f"{PREFIX}{name}.md"] = render_template(role, role, worker_prompt)
-            for profile, runtime in config["models"].items():
-                desired[directory / f"{PREFIX}{name}.{profile}.md"] = render_template(
-                    role, runtime, worker_prompt
-                )
+            desired[directory / f"{PREFIX}{name}.md"] = render_template(role, worker_prompt)
         changes = {"missing": [], "changed": [], "obsolete": [], "conflicts": []}
         for path, content in desired.items():
             if not path.exists() and not path.is_symlink():

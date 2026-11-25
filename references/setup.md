@@ -2,7 +2,7 @@
 
 ## 建立协作
 
-1. 阅读 `hc --skill` 后，在运行专家的机器或容器上用 `hc --json templates` 核对所选模板和 `command`。确认该 Core 能访问项目及模板指定的 harness。默认模板名为 `herdr-team-<角色>`，备选模板名为 `herdr-team-<角色>.<配置名>`。模板缺失、报错或参数与配置不符时，请用户先按同步说明处理。 [同步模板](../README.md#同步或更新模板)
+1. 阅读 `hc --skill` 后，在运行专家的机器或容器上用 `hc --json templates` 核对 `herdr-team-<角色>` 及其 `command`。确认该 Core 能访问项目及模板指定的 harness。模板缺失、报错或参数与角色配置不符时，请用户先按同步说明处理。 [同步模板](../README.md#同步或更新模板)
 2. 准备本次唯一的协作编号，给每位专家起可辨识的终端名。优先在同一开发机和 Core 上组织专家，让他们能用本地地址通信并查阅同一份证据。通过 `--on` 在远端派工时，在远端账号下核对模板，并保存返回的 `机器名/终端 ID` 完整地址。
 3. 主 Agent 在 Herdr 内时，用 `HC_SOCKET="$HC_TERMINAL_SOCKET" hc --json get "$HC_TERMINAL_ID"` 核实当前地址，本次命令使用同一 Core socket。把该地址交给专家，作为直接回报目标。主 Agent 在普通终端时，要求专家把报告和需要裁决的问题留在自己的终端，用 `hc wait`、`hc read` 按地址收回。两种模式都可以按协作编号找同组专家。
 
