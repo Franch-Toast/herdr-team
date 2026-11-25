@@ -35,11 +35,13 @@ $herdr-team 先评估缓存改造的两种方案，汇报取舍，暂时只读
 
 所有专家共享 `[worker].prompt` 中的原生 `hc` 通信、授权、汇报和待命约定。每个角色的 `prompt` 补充本职工作的边界和交付物。`access` 同时写进初始提示，Codex 模板还将它传给 `--sandbox`。Claude Code 的只读角色按提示词约定开展工作，实际工具权限沿用 Claude Code 的配置。若 harness 提示需要批准运行 `hc`，按它的授权流程处理。 [通信与回报](references/setup.md#交接与回报)
 
+同一职责需要换 harness 或模型时，添加 `base = "<基座角色>"` 的变体，只写差异。例如 `[roles.architect-codex]` 复用架构师的职责和提示，改用 Codex 独立给一套方案，用于兼听。变体继承 `harness`、`access`、`model` 等运行参数；写了 `prompt` 时追加在基座之后；写了 `description` 或 `responsibility` 时覆盖基座。省略 `description` 时自动标注运行环境，例如「…（codex）」，在 `hc templates` 里能直接区分。同步后得到独立模板 `herdr-team-<基座>-<后缀>`，派工和 `--label herdr-team-role` 都用模板名。角色名有 32 字符上限，`herdr-team-` 已占 11 个，变体后缀建议不超过 8 个字符。
+
 每个角色对应一个 `herdr-team-<角色>` 模板。新增角色时添加 `[roles.<角色>]` 并同步模板，主 Agent 即可按职责选用。派工用原生 `hc run`，Herdr 先用模板的 `command` 启动指定 harness，再把模板正文和本次任务一起发进交互会话。 [实际派工命令](references/setup.md#交接与回报)
 
 ## 同步或更新模板
 
-首次使用、修改专家配置或升级 Skill 后，在每台实际运行专家的开发机或容器上，用运行 Core 的账号手动同步。Linux 和 macOS 默认路径为 `~/.config/herdr-core/templates/`，Windows 默认路径为 `%APPDATA%\herdr-core\templates`。如果设置了 `XDG_CONFIG_HOME`，模板位于其下的 `herdr-core/templates/`。
+首次使用、修改专家配置或升级 Skill 后，在每台实际运行专家的开发机或容器上，用运行 Core 的账号手动同步。Linux 和 macOS 默认路径为 `~/.config/herdr-core/templates/`，Windows 默认路径为 `%APPDATA%\herdr-core\templates`。如果设置了 `XDG_CONFIG_HOME`，模板位于其下的 `herdr-core/templates/`。模板的 `command` 由 `sh` 执行，Windows 上需要 `sh` 在 PATH，例如随 Git 安装的 shell。
 
 ```sh
 cd /sandbox/skills/herdr-team

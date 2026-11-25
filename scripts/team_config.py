@@ -18,6 +18,7 @@ RUNTIME_FIELDS = {
     "codex": {"harness", "model", "profile", "provider"},
 }
 ROLE_FIELDS = {"description", "responsibility", "access", "prompt"}
+SECTIONS = {"worker", "roles"}
 
 
 def template_dir():
@@ -39,11 +40,79 @@ def validate_runtime_fields(entry, where):
             char in value for char in "\0\r\n"
         ):
             raise ValueError(f"{where}.{key} must be a nonempty, single-line value, not an option")
+    if harness == "claude" and (settings := entry.get("settings")):
+        path = (ROOT / Path(settings).expanduser()).resolve()
+        if not path.is_file():
+            raise ValueError(f"{where}.settings is not a file: {path}")
+
+
+def variant_description(role, base):
+    """Mark the runtime a variant adds, so the template list stays readable."""
+    description = role.get("description")
+    if not description:
+        return description
+    if role.get("harness") != base.get("harness"):
+        detail = role.get("harness", "")
+        if model := role.get("model"):
+            detail = f"{detail}/{model}"
+    elif role.get("model") != base.get("model"):
+        detail = role.get("model") or ""
+    else:
+        return description
+    return f"{description}（{detail}）"
+
+
+def merge_roles(roles):
+    """Resolve [roles.<name>].base into complete role definitions."""
+    resolved = {}
+
+    def resolve(name, chain):
+        if name in chain:
+            raise ValueError(f"roles.{name}.base forms a cycle: {' -> '.join(chain + (name,))}")
+        if name in resolved:
+            return resolved[name]
+        role = roles[name]
+        base_name = role.get("base")
+        base = {}
+        if base_name is not None:
+            if not isinstance(base_name, str) or base_name not in roles:
+                raise ValueError(f"roles.{name}.base must name a table in [roles]")
+            base = resolve(base_name, chain + (name,))
+        merged = dict(base)
+        for key, value in role.items():
+            if key == "base":
+                continue
+            if key == "prompt" and key in merged:
+                merged[key] = f"{merged[key]}\n\n{value}"
+            else:
+                merged[key] = value
+        if base_name is not None and "description" not in role:
+            merged["description"] = variant_description(merged, base)
+        resolved[name] = merged
+        return merged
+
+    return {name: resolve(name, ()) for name in roles}
+
+
+def validate_role(name, role):
+    for field in ROLE_FIELDS:
+        value = role.get(field)
+        if not isinstance(value, str) or not value.strip() or "\0" in value:
+            raise ValueError(f"roles.{name}.{field} must be a nonempty string")
+    if len(role["description"].splitlines()) != 1:
+        raise ValueError(f"roles.{name}.description must fit on one line")
+    if role["access"] not in ("read-only", "workspace-write"):
+        raise ValueError(f"roles.{name}.access must be read-only or workspace-write")
+    runtime = {key: value for key, value in role.items() if key not in ROLE_FIELDS}
+    validate_runtime_fields(runtime, f"roles.{name}")
 
 
 def load_config():
     with CONFIG.open("rb") as source:
         config = tomllib.load(source)
+    unknown = sorted(set(config) - SECTIONS)
+    if unknown:
+        raise ValueError(f"unsupported table(s) {', '.join(unknown)}; define [worker] and [roles.<name>]")
     worker = config.get("worker")
     prompt = worker.get("prompt") if isinstance(worker, dict) else None
     if not isinstance(prompt, str) or not prompt.strip() or "\0" in prompt:
@@ -54,17 +123,10 @@ def load_config():
     for name, role in roles.items():
         if not NAME.fullmatch(name) or not isinstance(role, dict):
             raise ValueError(f"invalid table [roles.{name}]")
-        for field in ROLE_FIELDS:
-            value = role.get(field)
-            if not isinstance(value, str) or not value.strip() or "\0" in value:
-                raise ValueError(f"roles.{name}.{field} must be a nonempty string")
-        if len(role["description"].splitlines()) != 1:
-            raise ValueError(f"roles.{name}.description must fit on one line")
-        if role["access"] not in ("read-only", "workspace-write"):
-            raise ValueError(f"roles.{name}.access must be read-only or workspace-write")
-        runtime = {key: value for key, value in role.items() if key not in ROLE_FIELDS}
-        validate_runtime_fields(runtime, f"roles.{name}")
-    return config
+    merged = merge_roles(roles)
+    for name, role in merged.items():
+        validate_role(name, role)
+    return {"worker": worker, "roles": merged}
 
 
 def render_template(role, worker_prompt):
