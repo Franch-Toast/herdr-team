@@ -17,6 +17,8 @@ hc --json run --bg --outlive-parent --name architect-42 --cwd /path/to/project \
 ```
 
 - **确认任务送达。** 记录返回的 `address` 和 `first_message.sent`。启动结果不明时，用 `hc get`、`hc read` 核实原终端，避免重复启动。确认首条消息未送达时，先处理就绪问题，再把生成模板的正文与原任务一起补发，保留共享协作约定和角色提示。
+- **开工先探活。** 交接要求专家第一件事回报 `READY <角色>`，只读角色也不例外。启动后一两分钟内用 `hc wait --children any` 或 `hc read` 核对这条探活；没见到就按通道可疑处理，不要等收工时才发现专家一直在自说自话。codex 专家回报 `cannot open core lock` 时见[通道排障](#通道排障)。
+- **通道故障按固定格式留屏。** 专家发不出消息时，把完整报告写在终端最后一段，并以 `## 待收: <一句话结论>` 起头。主 Agent 用 `hc wait`、`hc read` 按这个标记收取，并在汇报里说明哪些结论来自留屏而不是消息。
 - **卡住时先看屏。** `hc wait` 超时只是例行检查，不代表失败。连续两次没有进展时，用 `hc read --lines 100 <地址>` 判断是在跑长命令、等待信任或权限提示，还是已经卡死。报告用户后，用 `hc interrupt` 停当前回合，或 `hc kill` 后重开。重开会丢上下文，先读屏留下已有结论，再用文件或产物接续。
 - **控制写入顺序。** 同一工作目录同一时刻只允许一位 `workspace-write` 专家。需要并行写入时给每位独立 worktree，并把路径写进交接；等一位停稳再交给下一位。只读专家也只在派工指定的目录和证据范围内活动。
 - **只读要验证。** 只读角色靠提示词约束，验收时用 `git status --porcelain` 与派工前的快照比对，确认它没有落盘或改变仓库状态。
@@ -24,6 +26,16 @@ hc --json run --bg --outlive-parent --name architect-42 --cwd /path/to/project \
 - **专家直接解决日常问题。** 用 `hc send <地址> '<问题或答复>'` 联系对应专家。说明问题和证据，答复时给出结论与依据。由主 Agent 收集会影响交付的结论和阻塞。通信受权限限制时，先从终端读取详情，按当前 harness 的授权流程处理。也可以由主 Agent 读取并代转。
 - **由主 Agent 请求裁决。** 对范围、公共接口、兼容性、验收或授权有实质影响的事项，收集专家意见，向用户说明影响、选项和建议。收到决定后，用 `hc send` 把决定和适用范围转给相关专家。等待期间可以继续处理与该决定无关的工作。
 - **技术分歧由主 Agent 收口。** 专家对事实或实现路径不一致时，先核对各自证据和实际代码，再裁决并说明理由，把结论回写给相关专家。不按票数取舍，也不因为某位专家先表态就采信。裁决后仍无法确认的事实性分歧，交用户决定。
+
+## 通道排障
+
+专家回报失败时先区分通道故障和个别消息失败：同一位专家连 `hc ls`、`hc get` 都失败，就是通道整体不可用，不要再让它重试。
+
+- **codex 专家报 `cannot open core lock: Read-only file system (os error 30)`。** 它被套上了沙箱，而 `hc` 每条命令都要打开 `~/.local/state/herdr-core/<会话>/core.lock` 加锁，codex 的只读和 workspace-write 模式都让工作目录之外只读。默认的 `danger-full-access` 不会出现这个问题，先按[同步说明](../README.md#同步或更新模板)重新同步模板；确实是角色显式写了 `sandbox` 时，确认可写根包含 herdr 状态目录且打开了 `network_access`。
+- **报 `core did not stop or start within 15 s`。** 锁能打开，但连不上 core 的 unix socket，通常还是沙箱拦住。只给可写根不够，`network_access` 要一起打开。
+- **Bazel 报 `Output base directory ... must be readable and writable`，或依赖解析报 `Operation not permitted`。** 前者是输出根不可写，后者是网络被关掉，都只在角色显式收紧到 `workspace-write` 时出现。把该路径加进 `[worker].sandbox_roots` 再同步；换过 `--output_user_root` 或共享 disk cache 的项目别忘了它。默认无沙箱时这两条不会发生，遇到就是磁盘或环境问题。
+- **开工自检失败但通道正常。** 专家已在 `READY` 里报了缺什么，按它给的命令和路径补齐环境，再把同一任务重发一次，不要让它在缺工具的状态下硬做。
+- **claude 专家发不出消息。** 它没有沙箱，问题通常在权限提示或主 Agent 地址不对。用 `hc read` 看屏，按当前 harness 的授权流程处理。
 
 ## 待命与收尾
 

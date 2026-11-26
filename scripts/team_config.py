@@ -15,10 +15,13 @@ PREFIX = "herdr-team-"
 MANAGED = "herdr-team-managed: Expert_Team.toml"
 RUNTIME_FIELDS = {
     "claude": {"harness", "model", "settings"},
-    "codex": {"harness", "model", "profile", "provider"},
+    "codex": {"harness", "model", "profile", "provider", "sandbox"},
 }
 ROLE_FIELDS = {"description", "responsibility", "access", "prompt"}
 SECTIONS = {"worker", "roles"}
+SANDBOX_MODES = {"read-only", "workspace-write", "danger-full-access"}
+DEFAULT_SANDBOX_MODE = "danger-full-access"
+DEFAULT_SANDBOX_ROOTS = ["~/.cache"]
 
 
 def template_dir():
@@ -27,6 +30,34 @@ def template_dir():
         default = Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming"))
     home = Path(os.environ.get("XDG_CONFIG_HOME") or default)
     return home / "herdr-core" / "templates"
+
+
+def state_dir():
+    """Where herdr keeps the core lock and socket every hc command uses."""
+    default = Path.home() / ".local" / "state"
+    if os.name == "nt":
+        default = Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming"))
+    home = Path(os.environ.get("XDG_STATE_HOME") or default)
+    return home / "herdr-core"
+
+
+def codex_sandbox(role, roots):
+    """Build the sandbox arguments for a codex role.
+
+    Experts default to no sandbox: codex confines writes to the workspace, but
+    an expert needs hc (which locks in herdr's state directory) and its
+    toolchain (Bazel alone writes an output base, a download cache and a
+    repository cache, all configurable elsewhere). Enumerating those paths
+    always misses one, and every miss only surfaced at delivery. A role that
+    wants the confinement back sets sandbox = "workspace-write", which adds
+    the state directory, sandbox_roots and network access on top.
+    """
+    mode = role.get("sandbox") or DEFAULT_SANDBOX_MODE
+    if mode != "workspace-write":
+        return ["--sandbox", mode]
+    writable = ", ".join(json.dumps(str(path), ensure_ascii=False) for path in [state_dir(), *roots])
+    limits = f"sandbox_workspace_write={{writable_roots=[{writable}], network_access=true}}"
+    return ["--sandbox", "workspace-write", "-c", limits]
 
 
 def validate_runtime_fields(entry, where):
@@ -44,6 +75,21 @@ def validate_runtime_fields(entry, where):
         path = (ROOT / Path(settings).expanduser()).resolve()
         if not path.is_file():
             raise ValueError(f"{where}.settings is not a file: {path}")
+    if harness == "codex" and (mode := entry.get("sandbox")) and mode not in SANDBOX_MODES:
+        raise ValueError(f"{where}.sandbox must be one of {', '.join(sorted(SANDBOX_MODES))}")
+
+
+def sandbox_roots(worker):
+    """Directories codex experts may write outside the workspace."""
+    roots = worker.get("sandbox_roots", DEFAULT_SANDBOX_ROOTS)
+    if not isinstance(roots, list) or not roots:
+        raise ValueError("worker.sandbox_roots must be a nonempty list of directories")
+    resolved = []
+    for root in roots:
+        if not isinstance(root, str) or not root.strip() or "\0" in root:
+            raise ValueError("worker.sandbox_roots must list directories as nonempty strings")
+        resolved.append(str(Path(root).expanduser().resolve()))
+    return resolved
 
 
 def variant_description(role, base):
@@ -126,17 +172,18 @@ def load_config():
     merged = merge_roles(roles)
     for name, role in merged.items():
         validate_role(name, role)
-    return {"worker": worker, "roles": merged}
+    return {"worker": worker, "roles": merged, "sandbox_roots": sandbox_roots(worker)}
 
 
-def render_template(role, worker_prompt):
+def render_template(role, worker_prompt, roots):
     harness = role["harness"]
     argv = [harness]
     if harness == "claude":
         if settings := role.get("settings"):
             argv.extend(["--settings", str((ROOT / Path(settings).expanduser()).resolve())])
     else:
-        argv.extend(["--no-daemon", "--sandbox", role["access"]])
+        argv.append("--no-daemon")
+        argv.extend(codex_sandbox(role, roots))
         if profile := role.get("profile"):
             argv.extend(["--profile", profile])
         if provider := role.get("provider"):

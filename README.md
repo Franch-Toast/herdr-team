@@ -33,7 +33,11 @@ $herdr-team 先评估缓存改造的两种方案，汇报取舍，暂时只读
 
 在 `[roles.<角色>]` 中编辑 `harness`、`model`、`access`、职责和初始提示。切换模型时，直接修改对应角色的 `model`，然后手动同步模板。省略 `model` 时使用该 harness 的默认模型。内置模板生成支持 Claude Code 和 Codex 作为专家，也支持它们通过现有网关使用第三方模型。Claude Code 可指定现有 `settings` 文件，Codex 可指定已有 `profile` 或 `provider`。凭证由原有 harness 配置管理。 [Expert_Team.toml](Expert_Team.toml) · [同步步骤](#同步或更新模板)
 
-所有专家共享 `[worker].prompt` 中的原生 `hc` 通信、授权、汇报和待命约定。每个角色的 `prompt` 补充本职工作的边界和交付物。`access` 同时写进初始提示，Codex 模板还将它传给 `--sandbox`。Claude Code 的只读角色按提示词约定开展工作，实际工具权限沿用 Claude Code 的配置。若 harness 提示需要批准运行 `hc`，按它的授权流程处理。 [通信与回报](references/setup.md#交接与回报)
+所有专家共享 `[worker].prompt` 中的原生 `hc` 通信、授权、汇报和待命约定。每个角色的 `prompt` 补充本职工作的边界和交付物。`access` 写进初始提示，作为专家的行为约定。Claude Code 的只读角色按提示词约定开展工作，实际工具权限沿用 Claude Code 的配置。
+
+Codex 角色默认以 `--sandbox danger-full-access` 启动，和 Claude Code 专家以及 Codex 自身的默认配置一致。按 `access` 直接传沙箱模式是行不通的：codex 让工作目录之外全部只读，而 `hc` 每条命令都要在 herdr 的状态目录加锁，Bazel 还要写输出根和缓存，专家因此既无法回报也无法构建。逐个补可写目录同样走不通——仅 Bazel 就有输出根、下载缓存和仓库缓存三处，位置还都可以改，补一个漏一个，而每次漏都要等到交付才暴露。想收紧的角色写 `sandbox = "workspace-write"`，模板会自动把 herdr 状态目录和 `[worker].sandbox_roots`（默认 `~/.cache`）加进可写根，并打开 `network_access`；`sandbox = "read-only"` 连 `hc` 都跑不起来，只适合不回报的临时角色。因此 codex 角色之间的只读约束靠提示词约定，验收时用 `git status --porcelain` 核对。 [沙箱与排障](references/setup.md#通道排障)
+
+若 harness 提示需要批准运行 `hc`，按它的授权流程处理。 [通信与回报](references/setup.md#交接与回报)
 
 同一职责需要换 harness 或模型时，添加 `base = "<基座角色>"` 的变体，只写差异。例如 `[roles.architect-codex]` 复用架构师的职责和提示，改用 Codex 独立给一套方案，用于兼听。变体继承 `harness`、`access`、`model` 等运行参数；写了 `prompt` 时追加在基座之后；写了 `description` 或 `responsibility` 时覆盖基座。省略 `description` 时自动标注运行环境，例如「…（codex）」，在 `hc templates` 里能直接区分。同步后得到独立模板 `herdr-team-<基座>-<后缀>`，派工和 `--label herdr-team-role` 都用模板名。角色名有 32 字符上限，`herdr-team-` 已占 11 个，变体后缀建议不超过 8 个字符。
 

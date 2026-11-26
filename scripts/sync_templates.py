@@ -44,7 +44,9 @@ def main():
         desired = {}
         worker_prompt = config["worker"]["prompt"]
         for name, role in config["roles"].items():
-            desired[directory / f"{PREFIX}{name}.md"] = render_template(role, worker_prompt)
+            desired[directory / f"{PREFIX}{name}.md"] = render_template(
+                role, worker_prompt, config["sandbox_roots"]
+            )
         changes = {"missing": [], "changed": [], "obsolete": [], "conflicts": []}
         for path, content in desired.items():
             if not path.exists() and not path.is_symlink():
