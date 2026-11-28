@@ -29,6 +29,8 @@ $herdr-team 先评估缓存改造的两种方案，汇报取舍，暂时只读
 
 **Claude Code** 从 `SKILL.md` 读取 `disable-model-invocation: true`，正常注册 Skill 后即可用 `/herdr-team` 手动触发。`agents/claude-code.settings.json` 是可选的 `skillOverrides` 设置片段。要在 Claude Code 设置层声明同一策略，可把其中的 `herdr-team` 条目合并到项目的 `.claude/settings.local.json`，或显式用 `claude --settings /path/to/herdr-team/agents/claude-code.settings.json` 加载。 [Claude Code 调用控制](https://code.claude.com/docs/en/skills#control-who-invokes-a-skill) · [设置覆盖](https://code.claude.com/docs/en/skills#override-skill-visibility-from-settings)
 
+整次协作只通过 Herdr 派工。Claude Code 在调用 `/herdr-team` 的回合移除内置 `Agent` 工具，后续回合遵循 Skill 正文约束。专用于专家团的主 Claude 会话可用 `claude --disallowedTools Agent` 启动，使工具限制覆盖该会话的每一轮。生成的专家模板在 Claude Code 中使用同一参数，在 Codex 中使用 `-c agents.enabled=false`。 [Claude Code Skill 工具限制](https://code.claude.com/docs/en/skills#pre-approve-tools-for-a-skill) · [Codex agents 配置](https://developers.openai.com/codex/config-reference)
+
 ## 选择 harness 和模型
 
 在 `[roles.<角色>]` 中编辑 `harness`、`model`、`access`、职责和初始提示。切换模型时，直接修改对应角色的 `model`，然后手动同步模板。省略 `model` 时使用该 harness 的默认模型。内置模板生成支持 Claude Code 和 Codex 作为专家，也支持它们通过现有网关使用第三方模型。Claude Code 可指定现有 `settings` 文件，Codex 可指定已有 `profile` 或 `provider`。凭证由原有 harness 配置管理。 [Expert_Team.toml](Expert_Team.toml) · [同步步骤](#同步或更新模板)

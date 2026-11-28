@@ -2,30 +2,35 @@
 
 ## 建立协作
 
-1. 阅读 `hc --skill` 后，在运行专家的机器或容器上用 `hc --json templates` 核对 `herdr-team-<角色>` 及其 `command`。确认该 Core 能访问项目及模板指定的 harness。模板缺失、报错或参数与角色配置不符时，请用户先按同步说明处理。 [同步模板](../README.md#同步或更新模板)
+1. 阅读 `hc --skill` 后，在运行专家的机器或容器上用 `hc templates` 核对 `herdr-team-<角色>` 及其 `command`。确认该 Core 能访问项目及模板指定的 harness。模板缺失、报错或参数与角色配置不符时，按同步说明检查，并在具备相应权限时同步。 [同步模板](../README.md#同步或更新模板)
 2. 准备本次唯一的协作编号，给每位专家起可辨识的终端名。终端名用 `<角色>-<编号后缀>`，`hc` 只要求它在活跃终端内唯一，复用固定名字会在重开或并行开团时撞名。优先在同一开发机和 Core 上组织专家，让他们能用本地地址通信并查阅同一份证据。通过 `--on` 在远端派工时，在远端账号下核对模板，并保存返回的 `机器名/终端 ID` 完整地址。
 3. 主 Agent 在 Herdr 内时，用 `HC_SOCKET="$HC_TERMINAL_SOCKET" hc --json get "$HC_TERMINAL_ID"` 核实当前地址，本次命令使用同一 Core socket。把该地址交给专家，作为直接回报目标。主 Agent 在普通终端时，要求专家把报告和需要裁决的问题留在自己的终端，用 `hc wait`、`hc read` 按地址收回。两种模式都可以按协作编号找同组专家。
 
 ## 交接与回报
 
-通过 `hc run --bg` 和已注册的交互式模板启动，把首条任务作为一个参数随启动提交。任务包含范围、相关证据、工作目录、授权、验收条件、协作编号和回报目标。以下命令示范普通终端发起的只读审查。
+用已注册的交互式模板启动，一个角色一次 `hc run --json --bg`。交接写清任务范围、证据、工作目录、授权、验收条件、协作编号、回报目标和最小开工自检。每次正式交接给一个可在 `READY` 中核对的唯一编号，重试沿用原编号。新专家随启动接收正式交接，第一轮先探活再继续做任务。较长的交接单独写到专家可读的文件，把交接编号和文件路径作为一个简短、直接引用的任务参数。以下命令示范普通终端发起的只读审查。
 
 ```sh
-hc --json run --bg --outlive-parent --name architect-42 --cwd /path/to/project \
+hc run --json --bg --outlive-parent --name architect-42 --cwd /path/to/project \
   --label herdr-team-run=parser-review-42 --label herdr-team-role=architect \
-  herdr-team-architect '只读检查 profile 解析器和调用方。说明缺失 timeout 的旧配置会走哪个分支，给出文件和行号。协作编号 parser-review-42。主 Agent 在普通终端，把报告和待决定事项留在本终端。'
+  herdr-team-architect '交接 parser-review-42-arch-1。读取 /path/to/task-architect.md，按交接执行，先自检并在本终端回报 READY。'
 ```
 
-- **确认任务送达。** 记录返回的 `address` 和 `first_message.sent`。启动结果不明时，用 `hc get`、`hc read` 核实原终端，避免重复启动。确认首条消息未送达时，先处理就绪问题，再把生成模板的正文与原任务一起补发，保留共享协作约定和角色提示。
-- **开工先探活。** 交接要求专家第一件事回报 `READY <角色>`，只读角色也不例外。启动后一两分钟内用 `hc wait --children any` 或 `hc read` 核对这条探活；没见到就按通道可疑处理，不要等收工时才发现专家一直在自说自话。codex 专家回报 `cannot open core lock` 时见[通道排障](#通道排障)。
+- **核对接单。** 新启动记录 `address` 和 `first_message.sent`。复用时先记 `hc get` 的当前 `turn`，再用 `hc send --json <地址> '<交接>'`，记录返回的 `started`、`status` 和 `turn`。启动或送信后一两分钟内，核对该专家本次交接的 `READY <角色> <交接编号>` 和自检结果。主 Agent 可通过回报消息或 `hc read` 核对；`first_message.sent:true`、终端活跃和旧 `READY` 本身都不能确认接单。没有本次 `READY` 时，先检查终端是否正在执行本次交接或遇到阻塞。
 - **通道故障按固定格式留屏。** 专家发不出消息时，把完整报告写在终端最后一段，并以 `## 待收: <一句话结论>` 起头。主 Agent 用 `hc wait`、`hc read` 按这个标记收取，并在汇报里说明哪些结论来自留屏而不是消息。
-- **卡住时先看屏。** `hc wait` 超时只是例行检查，不代表失败。连续两次没有进展时，用 `hc read --lines 100 <地址>` 判断是在跑长命令、等待信任或权限提示，还是已经卡死。报告用户后，用 `hc interrupt` 停当前回合，或 `hc kill` 后重开。重开会丢上下文，先读屏留下已有结论，再用文件或产物接续。
+- **已接单后卡住先看屏。** `hc wait` 超时后用 `hc read --lines 100 <地址>` 确认长命令进度、提示或错误。确需中断或重开时，先保留屏幕上的结论和已有产物，再用原有证据接续。
 - **控制写入顺序。** 同一工作目录同一时刻只允许一位 `workspace-write` 专家。需要并行写入时给每位独立 worktree，并把路径写进交接；等一位停稳再交给下一位。只读专家也只在派工指定的目录和证据范围内活动。
 - **只读要验证。** 只读角色靠提示词约束，验收时用 `git status --porcelain` 与派工前的快照比对，确认它没有落盘或改变仓库状态。
 - **专家发现同组成员。** 每个模板都包含 [共享专家提示](../Expert_Team.toml) 中的沟通约定。先读 `hc --skill`，再用 `hc ls --label herdr-team-run=<编号>` 找地址，必要时用 `hc --json get <地址>` 核对协作编号和角色。
 - **专家直接解决日常问题。** 用 `hc send <地址> '<问题或答复>'` 联系对应专家。说明问题和证据，答复时给出结论与依据。由主 Agent 收集会影响交付的结论和阻塞。通信受权限限制时，先从终端读取详情，按当前 harness 的授权流程处理。也可以由主 Agent 读取并代转。
 - **由主 Agent 请求裁决。** 对范围、公共接口、兼容性、验收或授权有实质影响的事项，收集专家意见，向用户说明影响、选项和建议。收到决定后，用 `hc send` 把决定和适用范围转给相关专家。等待期间可以继续处理与该决定无关的工作。
 - **技术分歧由主 Agent 收口。** 专家对事实或实现路径不一致时，先核对各自证据和实际代码，再裁决并说明理由，把结论回写给相关专家。不按票数取舍，也不因为某位专家先表态就采信。裁决后仍无法确认的事实性分歧，交用户决定。
+
+## 派工失败与恢复
+
+1. **Claude Code 拒绝命令。** 先核对报错是否来自 Claude Code 的权限检查。Bash 规则按命令匹配，例如已有 `Bash(hc run *)` 时，派工用 `hc run --json --bg …`，把 `--json` 放在 `run` 后。每个派工直接用一条原生命令，避免管道、命令替换、组合多次派工和额外的 shell 超时，以便保留完整的结果和错误。复用用独立的 `hc send --json …`，它有自己的权限判定。通过 `/permissions` 核对生效规则。若是分类器拒绝且当前规则允许重新申请，主 Agent 用规范命令在同一权限流程里重试一次。遇到明确的 `deny` 规则或需要人工批准的提示，交用户处理，获得授权后再重试。 [Claude Code 权限匹配](https://code.claude.com/docs/en/permissions#bash)
+2. **已执行但未确认送达或开工。** 用 `hc get <地址或名称>` 和 `hc read --lines 100 <地址>` 确认实际任务、回合和终端状态。地址未知时用 `hc ls --all` 按原名称和协作标签查找。遇到 `first_message.sent:false`、`started:false`、`not_started` 或 `turn` 未变，先排查草稿、弹窗和回合上报。如果任务已出现或仍在执行，等待当前交接的回执或结果。确认任务未进入回合且终端恢复就绪后，向原终端补发或重发一次。首条任务未送达时须把模板正文一起补发。若明确没有可用终端，排除原因后用原交接与标签重开一次。权限、信任或配置弹窗由用户确认，保留用户正在编辑的草稿。
+3. **重试仍失败或必须人工处理。** 汇报角色、交接编号、终端地址（如有）、被拒命令或 `hc` 返回及读屏证据、已做的恢复、受影响的工作。请用户决定是否授权或接管原终端，或者暂停该角色。继续推进独立的已授权工作。所有后续派工仍使用 Herdr。
 
 ## 通道排障
 
@@ -34,8 +39,8 @@ hc --json run --bg --outlive-parent --name architect-42 --cwd /path/to/project \
 - **codex 专家报 `cannot open core lock: Read-only file system (os error 30)`。** 它被套上了沙箱，而 `hc` 每条命令都要打开 `~/.local/state/herdr-core/<会话>/core.lock` 加锁，codex 的只读和 workspace-write 模式都让工作目录之外只读。默认的 `danger-full-access` 不会出现这个问题，先按[同步说明](../README.md#同步或更新模板)重新同步模板；确实是角色显式写了 `sandbox` 时，确认可写根包含 herdr 状态目录且打开了 `network_access`。
 - **报 `core did not stop or start within 15 s`。** 锁能打开，但连不上 core 的 unix socket，通常还是沙箱拦住。只给可写根不够，`network_access` 要一起打开。
 - **Bazel 报 `Output base directory ... must be readable and writable`，或依赖解析报 `Operation not permitted`。** 前者是输出根不可写，后者是网络被关掉，都只在角色显式收紧到 `workspace-write` 时出现。把该路径加进 `[worker].sandbox_roots` 再同步；换过 `--output_user_root` 或共享 disk cache 的项目别忘了它。默认无沙箱时这两条不会发生，遇到就是磁盘或环境问题。
-- **开工自检失败但通道正常。** 专家已在 `READY` 里报了缺什么，按它给的命令和路径补齐环境，再把同一任务重发一次，不要让它在缺工具的状态下硬做。
-- **claude 专家发不出消息。** 它没有沙箱，问题通常在权限提示或主 Agent 地址不对。用 `hc read` 看屏，按当前 harness 的授权流程处理。
+- **开工自检失败。** 根据专家的 `READY` 核对缺失项；恢复后按[派工失败与恢复](#派工失败与恢复)重发，让专家重跑自检。
+- **Claude 专家发不出消息。** 用 `hc read` 查看权限提示、主 Agent 地址和消息状态，按当前 harness 的授权流程处理。任务已开工时可以直接收取留屏回报。
 
 ## 待命与收尾
 

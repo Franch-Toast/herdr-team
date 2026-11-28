@@ -181,8 +181,10 @@ def render_template(role, worker_prompt, roots):
     if harness == "claude":
         if settings := role.get("settings"):
             argv.extend(["--settings", str((ROOT / Path(settings).expanduser()).resolve())])
+        argv.extend(["--disallowedTools", "Agent"])
     else:
         argv.append("--no-daemon")
+        argv.extend(["-c", "agents.enabled=false"])
         argv.extend(codex_sandbox(role, roots))
         if profile := role.get("profile"):
             argv.extend(["--profile", profile])
